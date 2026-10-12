@@ -1,0 +1,226 @@
+"""
+container.py
+
+Structured result container for SMART pathway analysis.
+"""
+
+from typing import Dict, List, Optional, Tuple, Union
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from ..mechanisms.sub_mechanisms import DEFAULT_PALETTE
+
+class SMARTResult:
+    """
+    Container for reaction pathway analysis results.
+    
+    Attributes:
+        F: (nS, nS, nM, nL) Allocated element flux tensor.
+        H: (nS, nM, nL) Allocation factors.
+        Q: (nS, nM, nL) Allocated running cumulative pool tensor.
+        U: (nS, nM, nL) Allocated net source rate tensor.
+        N: (nS, nM) Converged global pathway allocation ratios.
+        time: (nL,) Time array.
+        tracked_species: List of tracked species names.
+        sub_mechs: List of sub-mechanism pathway names.
+        stage_slices: Dict mapping stage names to trajectory slices.
+    """
+    def __init__(
+        self,
+        F: np.ndarray,
+        H: np.ndarray,
+        Q: np.ndarray,
+        U: np.ndarray,
+        N: np.ndarray,
+        time: np.ndarray,
+        tracked_species: List[str],
+        sub_mechs: List[str],
+        target_species: str = "NO",
+        stage_slices: Optional[Dict[str, slice]] = None,
+        palette: Optional[Dict[str, str]] = None,
+        iterations: Optional[int] = None
+    ):
+        self.F = F
+        self.H = H
+        self.Q = Q
+        self.U = U
+        self.N = N
+        self.time = time
+        self.tracked_species = tracked_species
+        self.sub_mechs = sub_mechs
+        self.target_species = target_species
+        self.stage_slices = stage_slices or {"main": slice(0, len(time))}
+        self.palette = {**DEFAULT_PALETTE, **(palette or {})}
+        self.iterations = iterations
+        
+        self._sp_to_idx = {sp: i for i, sp in enumerate(tracked_species)}
+        self._mech_to_idx = {m: i for i, m in enumerate(sub_mechs)}
+        
+    def _get_target_idx(self, target: Optional[str] = None) -> int:
+        target_sp = target or self.target_species
+        if target_sp not in self._sp_to_idx:
+            raise ValueError(f"Species '{target_sp}' not in tracked species: {self.tracked_species}")
+        return self._sp_to_idx[target_sp]
+
+    def get_cumulative_yields(
+        self,
+        target: Optional[str] = None,
+        t_span: Optional[Tuple[float, float]] = None
+    ) -> pd.DataFrame:
+        """
+        Integrates allocated source rates over time to compute cumulative formation
+        and destruction yields for each sub-mechanism.
+        
+        Returns:
+            pd.DataFrame: Columns ['sub_mechanism', 'formation_yield', 'destruction_yield', 'net_yield', 'formation_share_%']
+        """
+        sp_idx = self._get_target_idx(target)
+        t = self.time
+        mask = np.ones_like(t, dtype=bool)
+        if t_span:
+            mask = (t >= t_span[0]) & (t <= t_span[1])
+            
+        t_sub = t[mask]
+        records = []
+        tot_formation = 0.0
+        
+        for k_idx, m_name in enumerate(self.sub_mechs):
+            u_traj = self.U[sp_idx, k_idx, mask]
+            u_pos = np.maximum(u_traj, 0.0)
+            u_neg = np.maximum(-u_traj, 0.0)
+            
+            y_pos = float(np.trapz(u_pos, t_sub))
+            y_neg = float(np.trapz(u_neg, t_sub))
+            y_net = y_pos - y_neg
+            
+            tot_formation += y_pos
+            records.append({
+                "sub_mechanism": m_name,
+                "formation_yield": y_pos,
+                "destruction_yield": y_neg,
+                "net_yield": y_net
+            })
+            
+        df_yields = pd.DataFrame(records)
+        df_yields["formation_share_%"] = (df_yields["formation_yield"] / (tot_formation + 1e-30)) * 100.0
+        return df_yields
+
+    def get_turnover_timescales(self, target: Optional[str] = None, target_conc_traj: Optional[np.ndarray] = None) -> pd.DataFrame:
+        """
+        Computes path-specific turnover timescales tau_{i,k}^flux = [X_i] / |u_{i,k}|.
+        """
+        sp_idx = self._get_target_idx(target)
+        timescales = {"time": self.time}
+        for k_idx, m_name in enumerate(self.sub_mechs):
+            u_mag = np.abs(self.U[sp_idx, k_idx, :])
+            if target_conc_traj is not None:
+                tau = np.where(u_mag > 1e-30, target_conc_traj / u_mag, np.inf)
+            else:
+                tau = np.where(u_mag > 1e-30, 1.0 / u_mag, np.inf)
+            timescales[f"tau_{m_name}"] = tau
+        return pd.DataFrame(timescales)
+
+    def to_dataframe(self, target: Optional[str] = None) -> pd.DataFrame:
+        """Exports time-resolved allocated pathway rates U for the target species to a DataFrame."""
+        sp_idx = self._get_target_idx(target)
+        data = {"time": self.time}
+        for k_idx, m_name in enumerate(self.sub_mechs):
+            data[f"U_{m_name}"] = self.U[sp_idx, k_idx, :]
+            data[f"Q_{m_name}"] = self.Q[sp_idx, k_idx, :]
+        return pd.DataFrame(data)
+
+    def plot_rates(
+        self,
+        target: Optional[str] = None,
+        ax: Optional[plt.Axes] = None,
+        show_net: bool = True,
+        t_ms: bool = True
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Plots time-resolved allocated pathway rates U_{i,k}."""
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8, 5))
+        else:
+            fig = ax.figure
+            
+        sp_idx = self._get_target_idx(target)
+        t_plot = self.time * 1e3 if t_ms else self.time
+        
+        for k_idx, m_name in enumerate(self.sub_mechs):
+            u = self.U[sp_idx, k_idx, :]
+            if np.max(np.abs(u)) > 1e-12:
+                c = self.palette.get(m_name, None)
+                ax.plot(t_plot, u, label=m_name, color=c, lw=1.8)
+                
+        if show_net:
+            u_net = np.sum(self.U[sp_idx, :, :], axis=0)
+            ax.plot(t_plot, u_net, label="Net Rate", color="black", linestyle="--", lw=1.5)
+            
+        ax.set_xlabel("Time [ms]" if t_ms else "Time [s]")
+        ax.set_ylabel(f"Allocated Rate for {target or self.target_species} [kmol/(m$^3\\cdot$s)]")
+        ax.legend(frameon=True)
+        ax.grid(True, linestyle=":", alpha=0.6)
+        return fig, ax
+
+    def plot_dominance(
+        self,
+        target: Optional[str] = None,
+        ax: Optional[plt.Axes] = None,
+        t_ms: bool = True
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Plots fractional formation share stackplot."""
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8, 5))
+        else:
+            fig = ax.figure
+            
+        sp_idx = self._get_target_idx(target)
+        t_plot = self.time * 1e3 if t_ms else self.time
+        
+        u_pos = np.maximum(self.U[sp_idx, :, :], 0.0)
+        tot_pos = np.sum(u_pos, axis=0, keepdims=True)
+        tot_pos = np.where(tot_pos > 1e-30, tot_pos, 1.0)
+        shares = (u_pos / tot_pos) * 100.0
+        
+        # Filter active pathways
+        active_idx = [k for k in range(len(self.sub_mechs)) if np.max(shares[k, :]) > 1.0]
+        y_stack = [shares[k, :] for k in active_idx]
+        labels = [self.sub_mechs[k] for k in active_idx]
+        colors = [self.palette.get(self.sub_mechs[k], None) for k in active_idx]
+        
+        ax.stackplot(t_plot, y_stack, labels=labels, colors=colors, alpha=0.85)
+        ax.set_xlabel("Time [ms]" if t_ms else "Time [s]")
+        ax.set_ylabel("Formation Share [%]")
+        ax.set_ylim(0, 100)
+        ax.legend(loc="upper right", frameon=True)
+        ax.grid(True, linestyle=":", alpha=0.6)
+        return fig, ax
+
+    def plot_pools(
+        self,
+        target: Optional[str] = None,
+        ax: Optional[plt.Axes] = None,
+        t_ms: bool = True
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Plots cumulative sub-mechanism pools Q_{i,k}."""
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8, 5))
+        else:
+            fig = ax.figure
+            
+        sp_idx = self._get_target_idx(target)
+        t_plot = self.time * 1e3 if t_ms else self.time
+        
+        for k_idx, m_name in enumerate(self.sub_mechs):
+            q = self.Q[sp_idx, k_idx, :]
+            if np.max(np.abs(q)) > 1e-12:
+                c = self.palette.get(m_name, None)
+                ax.plot(t_plot, q, label=f"Q: {m_name}", color=c, lw=1.8)
+                
+        q_tot = np.sum(self.Q[sp_idx, :, :], axis=0)
+        ax.plot(t_plot, q_tot, label="Total Pool P", color="black", linestyle="--", lw=1.5)
+        
+        ax.set_xlabel("Time [ms]" if t_ms else "Time [s]")
+        ax.set_ylabel(f"Cumulative Pool for {target or self.target_species} [kmol/m$^3$]")
+        ax.legend(frameon=True)
+        ax.grid(True, linestyle=":", alpha=0.6)
+        return fig, ax

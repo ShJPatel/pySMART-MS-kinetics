@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pysmart-kinetics"
+version = "0.1.0"
+description = "Sub-Mechanism Accounting and Reaction Tracing (SMART-MS & SMART-MG) for reacting flows and chemical kinetics"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Siddharth Patel"}
+]
+keywords = [
+    "combustion",
+    "reaction kinetics",
+    "chemical pathways",
+    "reaction pathway analysis",
+    "cantera",
+    "multigrid",
+    "NOx"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy>=1.22.0",
+    "scipy>=1.8.0",
+    "pandas>=1.4.0",
+    "cantera>=3.0.0",
+    "numba>=0.56.0",
+    "matplotlib>=3.5.0",
+    "pyyaml>=6.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pysmart*"]
+
+[tool.setuptools.package-data]
+pysmart = ["mechanisms/*.yaml", "mechanisms/*.json"]
