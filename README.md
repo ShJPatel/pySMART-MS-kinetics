@@ -86,7 +86,7 @@ sub_mechanism  formation_yield  destruction_yield     net_yield  formation_share
 ```
 
 ### The $U$ Allocation Time History: Pinpointing Kinetic Mechanisms
-The **Allocated Net Source Rate ($U_{i,k}$)** is the core diagnostic metric of the SMART framework. Unlike conventional reaction-rate grouping (which fails when intermediate radicals are shared across pathways), $U$ traces true atomic provenance forward from initiation reactions:
+The **Allocated Net Source Rate ($U_{i,k}$)** is the core diagnostic metric of the SMART framework (demonstrated in [`examples/01_single_stage_premixed.py`](examples/01_single_stage_premixed.py)). Unlike conventional reaction-rate grouping (which fails when intermediate radicals are shared across pathways), $U$ traces true atomic provenance forward from initiation reactions:
 
 <p align="center">
   <img src="examples/01_rates_no.png" alt="Allocated Pathway Rates (U matrix)" width="85%"/>
@@ -102,12 +102,12 @@ The **Allocated Net Source Rate ($U_{i,k}$)** is the core diagnostic metric of t
 
 In staged systems (such as primary stoichiometric flame $\to$ secondary fuel/air injection), fresh streams physically dilute carry-over gases and introduce new reactants. 
 
-To enable **SMART-MS** boundary jump tracking and proportional pool dilution, simply include the `stage_col` parameter:
+To enable **SMART-MS** boundary jump tracking and proportional pool dilution (demonstrated in [`examples/02_multistage_staged_combustion.py`](examples/02_multistage_staged_combustion.py)), simply include the `stage_col` parameter:
 
 ```python
 result = smart.analyze(
     df=df,
-    mech="Glarborg_2018.yaml",
+    mech="gri30.yaml",
     time_col="time",
     tracked_element="N",
     target_species="NO",
@@ -134,9 +134,9 @@ fig.savefig("multistage_rates_no.png", dpi=300, bbox_inches="tight")
   <img src="examples/02_multistage_rates_no.png" alt="Multi-Stage Allocated Pathway Rates (SMART-MS)" width="85%"/>
 </p>
 
-- **Stage 1 (Primary Flame):** Fuel-nitrogen oxidation actively forms $\ch{NO}$ (peak $+385\,\mathrm{kmol/(m^3\cdot s)}$) while amine radicals drive prompt DeNOx destruction.
-- **Stage Mixing Interface ($t = 2.0\,\mathrm{ms}$):** Secondary fuel injection physically dilutes pre-existing gases without chemical reaction. SMART-MS contracts pre-existing pools by the exact dilution factor.
-- **Stage 2 (Rich Relaxation):** In an oxygen-depleted environment with fresh amine radicals, Thermal DeNOx becomes the overwhelmingly dominant sink (negative rate), rapidly destroying carry-over $\ch{NO}$ with 99.98% mass closure.
+- **Stage 1 (Primary Flame):** Stoichiometric combustion actively forms Thermal $\ch{NO}$ up to high temperatures.
+- **Stage Mixing Interface:** Secondary fuel injection ($50\%$ staged fuel) physically dilutes pre-existing gases without instantaneous chemical reaction. SMART-MS contracts pre-existing pools by the exact dilution factor.
+- **Stage 2 (Rich Relaxation):** In a fuel-rich environment, Reburn becomes an active sink (negative rate), rapidly destroying carry-over $\ch{NO}$ while intermediate cyanides ($\ch{HCN}$) are tracked with exact mass closure.
 
 ---
 
@@ -281,8 +281,9 @@ result = smart.analyze(
 
 ---
 
-## 8. Runnable Examples
+## 9. Runnable Examples
 
-Check out the `examples/` directory for ready-to-run scripts:
-- **`examples/01_single_stage_premixed.py`**: Auto-ignition flame, yield integration, and line plotting.
-- **`examples/02_multistage_staged_combustion.py`**: Staged combustor, SMART-MS boundary jump tracking, and rich relaxation.
+The [`examples/`](examples/) directory contains standalone, turnkey demonstration scripts mirroring the physical models in NRRL and thesis analyses:
+
+- **[`examples/01_single_stage_premixed.py`](examples/01_single_stage_premixed.py)**: Single-stage stoichiometric $\ch{CH4}/\text{air}$ auto-ignition trajectory ($T_{\mathrm{in}}=600\,\mathrm{K}$, $P=5\,\mathrm{atm}$, GRI-Mech 3.0). Generates the complete diagnostic suite: allocated source rates ($U$), fractional dominance stackplot ($S^+$), 1D phase portrait (ROP vs. Temperature), cumulative pools ($Q$), and directed reaction pathway network graphs.
+- **[`examples/02_multistage_staged_combustion.py`](examples/02_multistage_staged_combustion.py)**: Axially staged combustor model with discrete mixing jump tracking (SMART-MS). Synthesizes a stoichiometric core flame (Stage 1), discrete $50\%$ staged fuel injection at the interface, and subsequent rich relaxation (Stage 2) resolving both thermal $\ch{NO}$ reburn destruction and intermediate cyanide ($\ch{HCN}$) formation.
