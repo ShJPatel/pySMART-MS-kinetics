@@ -184,6 +184,9 @@ Time-resolved formation and destruction rates for each sub-mechanism:
 fig, ax = result.plot_rates(target="NO", t_ms=True)
 fig.savefig("rates_no.png", dpi=300)
 ```
+<p align="center">
+  <img src="docs/images/rates_no.png" alt="Allocated Pathway Rates" width="750">
+</p>
 
 ### 6.2 Fractional Formation Dominance Stackplot ($S_{i,k}^+$)
 Time-resolved percentage share of ongoing pollutant formation:
@@ -191,6 +194,9 @@ Time-resolved percentage share of ongoing pollutant formation:
 fig, ax = result.plot_dominance(target="NO", t_ms=True)
 fig.savefig("dominance_no.png", dpi=300)
 ```
+<p align="center">
+  <img src="docs/images/dominance_no.png" alt="Formation Dominance Stackplot" width="750">
+</p>
 
 ### 6.3 Cumulative Accounting Ledgers ($Q_{i,k}$)
 Cumulative running pools tracking the net historical contribution of each pathway:
@@ -198,9 +204,12 @@ Cumulative running pools tracking the net historical contribution of each pathwa
 fig, ax = result.plot_pools(target="NO", t_ms=True)
 fig.savefig("pools_no.png", dpi=300)
 ```
+<p align="center">
+  <img src="docs/images/pools_no.png" alt="Cumulative Accounting Ledgers" width="750">
+</p>
 
 ### 6.4 Reaction Pathway Network Graph
-Interactive or publication-ready directed graph showing species nodes (scaled by concentration) and pathway edges (colored and weighted by allocated flux):
+Publication-ready directed graph showing species nodes (scaled by concentration) and pathway edges (colored and weighted by allocated flux):
 ```python
 fig, ax, pos = result.plot_network(
     df=df,
@@ -210,6 +219,9 @@ fig, ax, pos = result.plot_network(
 )
 fig.savefig("pathway_network.png", dpi=300)
 ```
+<p align="center">
+  <img src="docs/images/network_no.png" alt="Reaction Pathway Network Graph" width="750">
+</p>
 
 ### 6.5 Gross Inflow & Outflow Budget
 Two-panel stacked area budget decomposing gross formation vs. gross destruction fluxes:
@@ -217,6 +229,9 @@ Two-panel stacked area budget decomposing gross formation vs. gross destruction 
 fig, (ax_top, ax_bot) = result.plot_flux_budget(target="NO", t_ms=True)
 fig.savefig("flux_budget.png", dpi=300)
 ```
+<p align="center">
+  <img src="docs/images/flux_budget_no.png" alt="Gross Inflow and Outflow Budget" width="750">
+</p>
 
 ### 6.6 Phase Space Trajectories
 Inspect allocated pathway rates along state coordinates (such as Temperature $T$):
@@ -224,10 +239,13 @@ Inspect allocated pathway rates along state coordinates (such as Temperature $T$
 fig, ax = result.plot_phase_portrait(df=df, x_col="T", target="NO")
 fig.savefig("phase_portrait.png", dpi=300)
 ```
+<p align="center">
+  <img src="docs/images/phase_portrait_no.png" alt="Phase Space Trajectories" width="750">
+</p>
 
 ---
 
-## 6. Exporting Results
+## 7. Exporting Results
 
 Export time-resolved allocated pathway rates ($U$) and running pools ($Q$) directly to standard pandas DataFrames or CSV files:
 
@@ -243,7 +261,7 @@ df_tau.to_csv("pathway_timescales.csv", index=False)
 
 ---
 
-## 7. Mechanism Mappings
+## 8. Mechanism Mappings
 
 `pySMART` ships with curated, validated reaction mappings for:
 - **`gri30.yaml`** (Thermal, Prompt, N2O, NNH, NO2, HNO, Reburn)
