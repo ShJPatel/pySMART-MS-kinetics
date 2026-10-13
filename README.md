@@ -3,15 +3,22 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python: 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
-`pySMART` is a high-performance Python package for **reaction pathway analysis** in reacting flows and chemical kinetics. Building on the foundational SMART algorithm (Helbig & Bohon, 2024), `pySMART` introduces:
+`pySMART` is an open-source Python library for **reaction pathway analysis** in reacting flows and chemical kinetics. It attributes pollutant formation and destruction to distinct physical pathways (e.g., Thermal Zeldovich, Prompt Fenimore, Reburn, Fuel-N oxidation, DeNOx) on unmodified kinetic simulations.
 
-1. **Exact Open-System Mass Conservation (SMART-MS):** Resolves stage boundaries, discrete mixing jumps ($\Delta P_i^{\mathrm{mix}}$), and stream dilutions across multi-stage combustors with exact mass closure.
-2. **Hierarchical 3-Level Multi-Grid Domain Decomposition (SMART-MG):** Eliminates serial trajectory bottlenecks across dense kinetic mechanisms (such as Glarborg 2018 with 83 nitrogen species), delivering up to **$109\times$ parallel speedup** without trajectory downsampling.
-3. **Turnover Timescale Decomposition:** Evaluates path-resolved chemical turnover timescales ($\tau_{i,k}^{\mathrm{flux}}$) and relaxation timescales ($\tau_{i,k}^{\mathrm{flux,eq}}$).
+This package includes:
+- **Base SMART Algorithm**: Graph-based element tracking and 4-case local source allocation.
+- **SMART-MS**: Exact mass conservation and discrete boundary jump tracking across multi-stage combustors.
+- **SMART-MG**: Hierarchical 3-level domain decomposition parallel solver (up to $109\times$ speedup on detailed mechanisms like Glarborg 2018).
+
+> **Theoretical Foundations:** For the full mathematical derivations of graph element tracing, Case 1–4 allocations, SMART-MS mixing jump operators, and SMART-MG domain decomposition, please refer to:
+> - Patel, S. (2026). *Doctoral Thesis: Modeling and Kinetic Analysis of Axially Staged Combustion Systems*, Chapter 2 & Appendix B.
+> - Helbig, H., & Bohon, M. D. (2024). *A novel method for quantifying variations in NO formation pathways in combustion systems: Sub-mechanism accounting and reaction tracing (SMART)*. Combustion and Flame, 260, 113228.
 
 ---
 
-## Installation
+## 1. Installation
+
+Install directly from source in editable mode:
 
 ```bash
 git clone https://github.com/spatel472/pysmart.git
@@ -19,40 +26,180 @@ cd pysmart
 pip install -e .
 ```
 
+### Dependencies
+- Python >= 3.9
+- `cantera >= 3.0.0`
+- `numpy`, `scipy`, `pandas`, `numba`, `matplotlib`, `networkx`
+
 ---
 
-## Quickstart
+## 2. Input Data Format
+
+`pySMART` operates on a standard `pandas.DataFrame` representing any reacting flow trajectory (Cantera 0D reactor, 1D laminar flame, or CFD extraction).
+
+The DataFrame must include:
+1. **`time`** (or custom `time_col`): Continuous time in seconds $[s]$.
+2. **`T`**: Temperature in Kelvin $[K]$.
+3. **`P`**: Pressure in Pascals $[Pa]$ (or pass `fallback_pressure_pa` to `smart.analyze`).
+4. **Species Fractions**: Mass fractions (`Y_NO`, `Y_O2`, ...) or mole fractions (`X_NO`, `X_O2`, ...) matching species in your Cantera mechanism file.
+5. **`stage`** *(Optional, for multi-stage systems)*: Integer or string column denoting reactor stages (e.g., `1, 1, ..., 2, 2, ...`).
+
+---
+
+## 3. Quickstart: Single-Stage Reaction Pathway Analysis
 
 ```python
 import pandas as pd
 import pysmart as smart
 
-# 1. Provide your reacting trajectory as a DataFrame with T, P, X_species, time
-# df can come from Cantera 0D reactor networks, 1D laminar flames, or CFD extractions
+# 1. Load your trajectory DataFrame
 df = pd.read_csv("my_trajectory.csv")
 
-# 2. Run reaction pathway analysis with a single call
+# 2. Run pathway analysis
 result = smart.analyze(
     df=df,
-    mech="gri30.yaml",
-    time_col="time",
-    tracked_element="N",
-    target_species="NO",
-    stage_col="stage"   # Optional: enables SMART-MS jump tracking across combustor stages
+    mech="gri30.yaml",          # Cantera mechanism
+    time_col="time",            # Time column name
+    tracked_element="N",        # Element to track ('N', 'C', etc.)
+    target_species="NO",        # Target pollutant of interest
+    multigrid=True,             # Enables parallel SMART-MG solver
+    n_workers=4                 # Number of parallel workers
 )
 
-# 3. Inspect results
-print(result.get_cumulative_yields())
+# 3. View cumulative yields table
+df_yields = result.get_cumulative_yields(target="NO")
+print(df_yields)
+```
 
-# 4. Generate publication-ready figures
-fig_rates, ax = result.plot_rates(target="NO")
-fig_dom, ax = result.plot_dominance(target="NO")
-fig_pools, ax = result.plot_pools(target="NO")
+**Example Output Table:**
+```
+sub_mechanism  formation_yield  destruction_yield     net_yield  formation_share_%
+       Prompt     1.69e-05           0.00e+00          1.69e-05              15.5%
+      Thermal     2.97e-05           0.00e+00          2.97e-05              27.1%
+          NNH     6.28e-05           0.00e+00          6.28e-05              57.4%
+          NO2     0.00e+00           3.84e-06         -3.84e-06               0.0%
 ```
 
 ---
 
-## Authors & Citation
+## 4. Multi-Stage Staged Combustion (SMART-MS)
 
-Developed by Siddharth Patel.
-Based on the SMART framework by H. Helbig and M. D. Bohon (Combustion and Flame, 2024).
+In staged systems (such as primary stoichiometric flame $\to$ secondary fuel/air injection), fresh streams physically dilute carry-over gases and introduce new reactants. 
+
+To enable **SMART-MS** boundary jump tracking and proportional pool dilution, simply include the `stage_col` parameter:
+
+```python
+result = smart.analyze(
+    df=df,
+    mech="Glarborg_2018.yaml",
+    time_col="time",
+    tracked_element="N",
+    target_species="NO",
+    stage_col="stage",          # Automatically evaluates Delta P_i^mix across stages
+    multigrid=True,
+    n_workers=8
+)
+```
+
+`pySMART` automatically:
+- Identifies stage boundaries where `df['stage']` transitions.
+- Evaluates discrete concentration jumps: $\Delta P_i^{\mathrm{mix}} = [X_i]_{\mathrm{entry}}^{(s+1)} - [X_i]_{\mathrm{exit}}^{(s)}$.
+- Assigns fresh mass additions to the dedicated `Staged Mixing` pathway.
+- Proportionally contracts pre-existing pools for accurate Case 3 drawdown accounting.
+
+---
+
+## 5. Complete Visualization Suite
+
+All plots are accessible directly from the returned `SMARTResult` object:
+
+### 5.1 Allocated Pathway Rates ($U_{i,k}$)
+Time-resolved formation and destruction rates for each sub-mechanism:
+```python
+fig, ax = result.plot_rates(target="NO", t_ms=True)
+fig.savefig("rates_no.png", dpi=300)
+```
+
+### 5.2 Fractional Formation Dominance Stackplot ($S_{i,k}^+$)
+Time-resolved percentage share of ongoing pollutant formation:
+```python
+fig, ax = result.plot_dominance(target="NO", t_ms=True)
+fig.savefig("dominance_no.png", dpi=300)
+```
+
+### 5.3 Cumulative Accounting Ledgers ($Q_{i,k}$)
+Cumulative running pools tracking the net historical contribution of each pathway:
+```python
+fig, ax = result.plot_pools(target="NO", t_ms=True)
+fig.savefig("pools_no.png", dpi=300)
+```
+
+### 5.4 Reaction Pathway Network Graph
+Interactive or publication-ready directed graph showing species nodes (scaled by concentration) and pathway edges (colored and weighted by allocated flux):
+```python
+fig, ax, pos = result.plot_network(
+    df=df,
+    target="NO",
+    threshold=0.05,             # Hide edges with < 5% of maximum flux
+    t_span=(0.001, 0.002)       # Integrate over a specific time window [s]
+)
+fig.savefig("pathway_network.png", dpi=300)
+```
+
+### 5.5 Gross Inflow & Outflow Budget
+Two-panel stacked area budget decomposing gross formation vs. gross destruction fluxes:
+```python
+fig, (ax_top, ax_bot) = result.plot_flux_budget(target="NO", t_ms=True)
+fig.savefig("flux_budget.png", dpi=300)
+```
+
+### 5.6 Phase Space Trajectories
+Inspect allocated pathway rates along state coordinates (such as Temperature $T$):
+```python
+fig, ax = result.plot_phase_portrait(df=df, x_col="T", target="NO")
+fig.savefig("phase_portrait.png", dpi=300)
+```
+
+---
+
+## 6. Exporting Results
+
+Export time-resolved allocated pathway rates ($U$) and running pools ($Q$) directly to standard pandas DataFrames or CSV files:
+
+```python
+# Convert to DataFrame
+df_out = result.to_dataframe(target="NO")
+df_out.to_csv("smart_allocated_rates.csv", index=False)
+
+# Compute path-specific turnover timescales: tau = [X_i] / |u_{i,k}|
+df_tau = result.get_turnover_timescales(target="NO")
+df_tau.to_csv("pathway_timescales.csv", index=False)
+```
+
+---
+
+## 7. Mechanism Mappings
+
+`pySMART` ships with curated, validated reaction mappings for:
+- **`gri30.yaml`** (Thermal, Prompt, N2O, NNH, NO2, HNO, Reburn)
+- **`Glarborg_2018.yaml`** (11 pathways, 1,164 reactions, including Fuel-Bound NH3 and Thermal DeNOx)
+
+### Using a Custom Mechanism
+If using a different mechanism (e.g. Okafor, San Diego, CRECK), `pySMART` automatically performs **rule-based gateway classification** of initiation steps. You can also provide a custom mapping YAML file or dictionary:
+
+```python
+result = smart.analyze(
+    df=df,
+    mech="my_mechanism.yaml",
+    mechanism_mapping="my_custom_mapping.yaml",
+    target_species="NO"
+)
+```
+
+---
+
+## 8. Runnable Examples
+
+Check out the `examples/` directory for ready-to-run scripts:
+- **`examples/01_single_stage_premixed.py`**: Auto-ignition flame, yield integration, and line plotting.
+- **`examples/02_multistage_staged_combustion.py`**: Staged combustor, SMART-MS boundary jump tracking, and rich relaxation.
