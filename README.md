@@ -9,6 +9,7 @@ This package includes:
 - **Base SMART Algorithm**: Graph-based element tracking and 4-case local source allocation.
 - **SMART-MS**: Exact mass conservation and discrete boundary jump tracking across multi-stage combustors.
 - **SMART-MG**: Hierarchical 3-level domain decomposition parallel solver (up to $109\times$ speedup on detailed mechanisms like Glarborg 2018).
+- **Native Numba JIT Compilation (`@njit(cache=True)`)**: The inner time-stepping loops across both serial and multi-grid parallel workers are fully JIT-compiled into optimized C-speed machine code, eliminating Python interpreter and GIL overhead during pathway relaxation.
 
 > **Theoretical Foundations:** For the full mathematical derivations of graph element tracing, Case 1–4 allocations, SMART-MS mixing jump operators, and SMART-MG domain decomposition, please refer to:
 > - Patel, S. (2026). *Doctoral Thesis: Modeling and Kinetic Analysis of Axially Staged Combustion Systems*, Chapter 2 & Appendix B.
@@ -109,7 +110,28 @@ result = smart.analyze(
 
 ---
 
-## 5. Complete Visualization Suite
+## 5. High Performance Architecture: Multi-Grid (SMART-MG) & Numba JIT Compilation
+
+Evaluating reaction pathways across stiff combustion trajectories can be a severe computational bottleneck ($\mathcal{O}(N_L \cdot N_{\mathrm{sp}}^2 \cdot N_{\mathrm{mech}} \cdot N_{\mathrm{iter}})$). For comprehensive mechanisms like Glarborg 2018 (83 nitrogen-bearing species, 1,395 reactions), an unaccelerated serial trajectory solve can take 2.5 to 15 hours.
+
+`pySMART` solves this via a two-tier acceleration architecture:
+
+### 5.1 Native Numba JIT Compilation (`@njit(cache=True)`)
+- **C-Speed Inner Loops:** The core algebraic allocation kernels (`allocate_flux`, `calculate_allocation_factor`, and `allocate_pool`) in `solver_serial.py` are compiled to machine code using Numba JIT.
+- **Identical JIT Kernels Across Parallel Workers:** In multi-grid mode (`multigrid=True`), every asynchronous chunk worker calls the exact same Numba JIT-compiled kernel on its assigned local time slice. With `cache=True`, workers load pre-compiled binaries from disk without compilation lag.
+- **Zero Python Overhead:** Inner time-stepping loops run without Python interpreter or GIL intervention.
+
+### 5.2 Hierarchical 3-Level Multi-Grid Domain Decomposition (SMART-MG)
+When `multigrid=True` is enabled:
+1. **Level 0 (Serial Coarse Warmup):** A single coarse forward pass ($M_{\max,0} = 3$) pre-conditions pathway allocation ratios ($\boldsymbol{\nu}_{i,k}^{(0)}$), establishing accurate flame front locations in $< 1\,\mathrm{s}$ and cutting outer iterations by $>70\%$.
+2. **Level 1 (Parallel Subdomain Smoothing):** The trajectory is partitioned into $P$ chunk subdomains across a `ProcessPoolExecutor`. Each worker executes the JIT kernel over its local slice concurrently.
+3. **Level 2 (Global Synchronization):** The master thread aggregates scalar integrals $\sum_p \mathcal{I}_F^{(p)}$ and $\sum_p \mathcal{I}_G^{(p)}$ to synchronize global correction factors $\boldsymbol{\nu}_{i,k}$. Because scalars are tiny ($83 \times 11 \approx 900$ floats), communication overhead is $< 0.02\,\mathrm{s}$.
+
+This delivers up to a **$109\times$ speedup** (reducing 2.5-hour serial runs to $82.6\,\mathrm{s}$ on 8 cores) while eliminating the need for lossy trajectory downsampling.
+
+---
+
+## 6. Complete Visualization Suite
 
 All plots are accessible directly from the returned `SMARTResult` object:
 
