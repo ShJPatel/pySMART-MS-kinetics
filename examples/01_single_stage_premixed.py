@@ -63,12 +63,15 @@ def main():
     print("\n4. Generating publication diagnostic plots zoomed in on flame zone...")
     
     # Flame zone window: Prompt NO spikes at ~2.05 ms and Thermal NO rises at ~2.08 ms
-    # Zooming in to [1.2, 3.5] ms clearly exposes the flame front radical dynamics and prompt peak!
-    flame_xlim = (1.2, 3.5)
+    # Zooming in tightly to [1.8, 2.6] ms clearly exposes the flame front radical dynamics and prompt peak!
+    flame_xlim = (1.8, 2.6)
+    # Pathway rates peak around 0.02 - 0.03 kmol/(m³·s). Clipping the extreme net rate peak gives extreme resolution on the pathways!
+    flame_ylim = (-0.001, 0.035)
 
     # 4a. Time-resolved allocated rates (U matrix)
     fig_rates, ax_rates = result.plot_rates(target="NO", t_ms=True)
     ax_rates.set_xlim(flame_xlim)
+    ax_rates.set_ylim(flame_ylim)
     ax_rates.set_title("Allocated NO Source Rate in Flame Zone (U Matrix)")
     fig_rates.savefig("examples/01_rates_no.png", dpi=300, bbox_inches="tight")
     print("   Saved: examples/01_rates_no.png")

@@ -69,7 +69,10 @@ def plot_gross_flux_budget(
     ax_bot.set_xlabel("Time [ms]" if t_ms else "Time [s]")
     ax_bot.grid(True, linestyle=":", alpha=0.5)
 
-    fig.tight_layout()
+    try:
+        fig.tight_layout()
+    except (UserWarning, ValueError):
+        pass
     return fig, (ax_top, ax_bot)
 
 def plot_phase_portrait(
