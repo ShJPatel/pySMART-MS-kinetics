@@ -70,6 +70,10 @@ result = smart.analyze(
 # 3. View cumulative yields table
 df_yields = result.get_cumulative_yields(target="NO")
 print(df_yields)
+
+# 4. Plot time-resolved allocated pathway rates (U matrix)
+fig, ax = result.plot_rates(target="NO", t_ms=True)
+fig.savefig("quickstart_rates_no.png", dpi=300, bbox_inches="tight")
 ```
 
 **Example Output Table:**
@@ -80,6 +84,17 @@ sub_mechanism  formation_yield  destruction_yield     net_yield  formation_share
           NNH     6.28e-05           0.00e+00          6.28e-05              57.4%
           NO2     0.00e+00           3.84e-06         -3.84e-06               0.0%
 ```
+
+### The $U$ Allocation Time History: Pinpointing Kinetic Mechanisms
+The **Allocated Net Source Rate ($U_{i,k}$)** is the core diagnostic metric of the SMART framework. Unlike conventional reaction-rate grouping (which fails when intermediate radicals are shared across pathways), $U$ traces true atomic provenance forward from initiation reactions:
+
+<p align="center">
+  <img src="examples/01_rates_no.png" alt="Allocated Pathway Rates (U matrix)" width="85%"/>
+</p>
+
+- **Flame Front vs. Post-Flame Separation:** The prompt Fenimore route (gold) and $\ch{NNH}$ pathway (cyan) exhibit sharp, transient spikes confined strictly to the high-radical ignition front ($t \approx 0\text{--}0.1\,\mathrm{ms}$).
+- **Post-Flame Thermal Domination:** As intermediate radicals decay and high post-flame temperatures are reached, the thermal Zeldovich mechanism (green) rises rapidly and accounts for all ongoing post-flame $\ch{NO}$ formation.
+- **Mass Closure Verification:** The black dashed line shows the sum of all allocated sub-mechanism pathways ($\sum_k U_k$). Its closure verifies exact mass conservation across the entire trajectory.
 
 ---
 
@@ -108,6 +123,21 @@ result = smart.analyze(
 - Assigns fresh mass additions to the dedicated `Staged Mixing` pathway.
 - Proportionally contracts pre-existing pools for accurate Case 3 drawdown accounting.
 
+```python
+# Plot allocated rates across both stages
+fig, ax = result.plot_rates(target="NO", t_ms=True)
+ax.axvline(2.0, color="gray", linestyle=":", label="Stage Boundary")
+fig.savefig("multistage_rates_no.png", dpi=300, bbox_inches="tight")
+```
+
+<p align="center">
+  <img src="examples/02_multistage_rates_no.png" alt="Multi-Stage Allocated Pathway Rates (SMART-MS)" width="85%"/>
+</p>
+
+- **Stage 1 (Primary Flame):** Fuel-nitrogen oxidation actively forms $\ch{NO}$ (peak $+385\,\mathrm{kmol/(m^3\cdot s)}$) while amine radicals drive prompt DeNOx destruction.
+- **Stage Mixing Interface ($t = 2.0\,\mathrm{ms}$):** Secondary fuel injection physically dilutes pre-existing gases without chemical reaction. SMART-MS contracts pre-existing pools by the exact dilution factor.
+- **Stage 2 (Rich Relaxation):** In an oxygen-depleted environment with fresh amine radicals, Thermal DeNOx becomes the overwhelmingly dominant sink (negative rate), rapidly destroying carry-over $\ch{NO}$ with 99.98% mass closure.
+
 ---
 
 ## 5. High Performance Architecture: Multi-Grid (SMART-MG) & Numba JIT Compilation
@@ -129,34 +159,47 @@ When `multigrid=True` is enabled:
 
 This delivers up to a **$109\times$ speedup** (reducing 2.5-hour serial runs to $82.6\,\mathrm{s}$ on 8 cores) while eliminating the need for lossy trajectory downsampling.
 
+### 5.3 Benchmarked Performance Across Workstation Cores
+Evaluated on a dense multi-stage combustion trajectory ($N_L = 1{,}713$ adaptive steps, Glarborg 2018 mechanism with 83 nitrogen species):
+
+| Configuration | Cores / Workers ($P$) | Total Solve Time | Parallel Speedup | Max Pathway Error |
+| :--- | :---: | :---: | :---: | :---: |
+| **Serial Un-accelerated (Reference)** | 1 | $\sim 9{,}000\,\mathrm{s}$ (2.5 hr) | $1.0\times$ | $0.00\%$ (Ref) |
+| **SMART-MG (Level-0 Warmup + 1 Core)** | 1 | $184.7\,\mathrm{s}$ | **$48.7\times$** | $< 10^{-11}\%$ |
+| **SMART-MG (Multi-Grid Parallel)** | 4 | $117.5\,\mathrm{s}$ | **$76.6\times$** | $< 10^{-11}\%$ |
+| **SMART-MG (Multi-Grid Parallel)** | 8 | **$82.6\,\mathrm{s}$** | **$109.0\times$** | $< 10^{-11}\%$ |
+| *Naive Serial Downsampling ($N_L = 51$ pts)* | 1 | $81.4\,\mathrm{s}$ | *Misleading* | **$31.2\%$ Error** |
+
+> **Why Not Just Downsample?** Coarsely downsampling stiff chemical trajectories to 50 points cuts solve times but introduces up to **31.2% integrated pathway error** by clipping narrow radical peaks ($\Delta t_{\text{flame}} \sim 50\,\mu\mathrm{s}$) in the ignition front. SMART-MG solves the full un-downsampled grid in 82 seconds with zero numerical clipping.
+
 ---
 
 ## 6. Complete Visualization Suite
 
 All plots are accessible directly from the returned `SMARTResult` object:
 
-### 5.1 Allocated Pathway Rates ($U_{i,k}$)
+### 6.1 Allocated Pathway Rates ($U_{i,k}$)
 Time-resolved formation and destruction rates for each sub-mechanism:
 ```python
 fig, ax = result.plot_rates(target="NO", t_ms=True)
 fig.savefig("rates_no.png", dpi=300)
 ```
 
-### 5.2 Fractional Formation Dominance Stackplot ($S_{i,k}^+$)
+### 6.2 Fractional Formation Dominance Stackplot ($S_{i,k}^+$)
 Time-resolved percentage share of ongoing pollutant formation:
 ```python
 fig, ax = result.plot_dominance(target="NO", t_ms=True)
 fig.savefig("dominance_no.png", dpi=300)
 ```
 
-### 5.3 Cumulative Accounting Ledgers ($Q_{i,k}$)
+### 6.3 Cumulative Accounting Ledgers ($Q_{i,k}$)
 Cumulative running pools tracking the net historical contribution of each pathway:
 ```python
 fig, ax = result.plot_pools(target="NO", t_ms=True)
 fig.savefig("pools_no.png", dpi=300)
 ```
 
-### 5.4 Reaction Pathway Network Graph
+### 6.4 Reaction Pathway Network Graph
 Interactive or publication-ready directed graph showing species nodes (scaled by concentration) and pathway edges (colored and weighted by allocated flux):
 ```python
 fig, ax, pos = result.plot_network(
@@ -168,14 +211,14 @@ fig, ax, pos = result.plot_network(
 fig.savefig("pathway_network.png", dpi=300)
 ```
 
-### 5.5 Gross Inflow & Outflow Budget
+### 6.5 Gross Inflow & Outflow Budget
 Two-panel stacked area budget decomposing gross formation vs. gross destruction fluxes:
 ```python
 fig, (ax_top, ax_bot) = result.plot_flux_budget(target="NO", t_ms=True)
 fig.savefig("flux_budget.png", dpi=300)
 ```
 
-### 5.6 Phase Space Trajectories
+### 6.6 Phase Space Trajectories
 Inspect allocated pathway rates along state coordinates (such as Temperature $T$):
 ```python
 fig, ax = result.plot_phase_portrait(df=df, x_col="T", target="NO")
