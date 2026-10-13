@@ -224,3 +224,82 @@ class SMARTResult:
         ax.legend(frameon=True)
         ax.grid(True, linestyle=":", alpha=0.6)
         return fig, ax
+
+    def plot_network(
+        self,
+        df: Optional[pd.DataFrame] = None,
+        t_span: Optional[Tuple[float, float]] = None,
+        t_idx: Optional[int] = None,
+        threshold: float = 0.05,
+        target: Optional[str] = None,
+        pos: Optional[Dict] = None,
+        title: Optional[str] = "Reaction Pathway Network",
+        ax: Optional[plt.Axes] = None
+    ) -> Tuple[plt.Figure, plt.Axes, Dict]:
+        """
+        Plots a directed element flux graph where nodes are species sized by concentration
+        and edges are allocated elemental mass fluxes colored by sub-mechanism.
+        """
+        from .network import plot_reaction_network
+        return plot_reaction_network(
+            F=self.F,
+            tracked_species=self.tracked_species,
+            sub_mechs=self.sub_mechs,
+            palette=self.palette,
+            time=self.time,
+            df=df,
+            t_span=t_span,
+            t_idx=t_idx,
+            target_species=target or self.target_species,
+            threshold=threshold,
+            pos=pos,
+            title=title,
+            ax=ax
+        )
+
+    def plot_flux_budget(
+        self,
+        target: Optional[str] = None,
+        t_ms: bool = True,
+        title: Optional[str] = None,
+        ax_top: Optional[plt.Axes] = None,
+        ax_bot: Optional[plt.Axes] = None
+    ) -> Tuple[plt.Figure, Tuple[plt.Axes, plt.Axes]]:
+        """Plots a 2-panel gross inflow and outflow flux budget stacked area chart."""
+        from .diagnostics import plot_gross_flux_budget
+        return plot_gross_flux_budget(
+            F=self.F,
+            time=self.time,
+            tracked_species=self.tracked_species,
+            sub_mechs=self.sub_mechs,
+            palette=self.palette,
+            target_species=target or self.target_species,
+            t_ms=t_ms,
+            title=title,
+            ax_top=ax_top,
+            ax_bot=ax_bot
+        )
+
+    def plot_phase_portrait(
+        self,
+        df: pd.DataFrame,
+        x_col: str = "T",
+        target: Optional[str] = None,
+        title: Optional[str] = None,
+        ax: Optional[plt.Axes] = None
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Plots allocated source rates U_{i,k} against a state coordinate (e.g. Temperature T)."""
+        from .diagnostics import plot_phase_portrait
+        return plot_phase_portrait(
+            df=df,
+            U=self.U,
+            time=self.time,
+            tracked_species=self.tracked_species,
+            sub_mechs=self.sub_mechs,
+            palette=self.palette,
+            target_species=target or self.target_species,
+            x_col=x_col,
+            title=title,
+            ax=ax
+        )
+
