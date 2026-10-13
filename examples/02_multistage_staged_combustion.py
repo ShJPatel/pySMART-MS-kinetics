@@ -101,11 +101,14 @@ def main():
     df, t_stage1_end = simulate_nrrl_staged_combustor()
     print(f"   Total composite trajectory: {len(df)} points across 2 stages.")
 
+    # Zero-shift time relative to the stage interface (t=0 at secondary fuel injection)
+    df["time_rel_boundary"] = df["time"] - t_stage1_end
+
     print("\n2. Executing pySMART Multi-Stage Jump Tracking (SMART-MS)...")
     result = smart.analyze(
         df=df,
         mech="gri30.yaml",
-        time_col="time",
+        time_col="time_rel_boundary",
         tracked_element="N",
         target_species="NO",
         stage_col="stage",    # Enables discrete stage mass-jump tracking
@@ -125,24 +128,34 @@ def main():
     df_hcn = result.get_cumulative_yields(target="HCN")
     print(df_hcn.to_string(index=False))
 
-    print("\n6. Generating diagnostic plots across stage boundary...")
+    print("\n6. Generating diagnostic plots zoomed in on stage interface & rich reaction zone...")
+    # Zoom limits: [-0.3 ms, 1.2 ms] around stage boundary
+    # Shows late Stage 1 flame exit followed by instantaneous mixing jump and rich reburning!
+    zoom_xlim = (-0.3, 1.2)
+
     # Plot NO rates
     fig_rates, ax_rates = result.plot_rates(target="NO", t_ms=True)
-    ax_rates.axvline(t_stage1_end * 1e3, color="gray", linestyle=":", label="Stage Boundary")
+    ax_rates.set_xlim(zoom_xlim)
+    ax_rates.axvline(0.0, color="gray", linestyle=":", label="Stage Boundary (t=0)")
+    ax_rates.set_title("Allocated NO Rates Across Stage Interface (SMART-MS)")
     ax_rates.legend(frameon=True)
     fig_rates.savefig("examples/02_multistage_rates_no.png", dpi=300, bbox_inches="tight")
     print("   Saved: examples/02_multistage_rates_no.png")
 
     # Plot NO pools
     fig_pools, ax_pools = result.plot_pools(target="NO", t_ms=True)
-    ax_pools.axvline(t_stage1_end * 1e3, color="gray", linestyle=":", label="Stage Boundary")
+    ax_pools.set_xlim(zoom_xlim)
+    ax_pools.axvline(0.0, color="gray", linestyle=":", label="Stage Boundary (t=0)")
+    ax_pools.set_title("Cumulative NO Pools Across Stage Interface (SMART-MS)")
     ax_pools.legend(frameon=True)
     fig_pools.savefig("examples/02_multistage_pools_no.png", dpi=300, bbox_inches="tight")
     print("   Saved: examples/02_multistage_pools_no.png")
 
     # Plot HCN rates (mirroring NRRL splt.plot_results_f target_sp='HCN')
     fig_hcn, ax_hcn = result.plot_rates(target="HCN", t_ms=True)
-    ax_hcn.axvline(t_stage1_end * 1e3, color="gray", linestyle=":", label="Stage Boundary")
+    ax_hcn.set_xlim(zoom_xlim)
+    ax_hcn.axvline(0.0, color="gray", linestyle=":", label="Stage Boundary (t=0)")
+    ax_hcn.set_title("Allocated HCN Rates Across Stage Interface (SMART-MS)")
     ax_hcn.legend(frameon=True)
     fig_hcn.savefig("examples/02_multistage_rates_hcn.png", dpi=300, bbox_inches="tight")
     print("   Saved: examples/02_multistage_rates_hcn.png")
