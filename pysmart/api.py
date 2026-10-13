@@ -36,7 +36,8 @@ def analyze(
     max_iter: int = 10,
     fallback_pressure_pa: Optional[float] = None,
     cache_path: Optional[str] = None,
-    palette: Optional[Dict[str, str]] = None
+    palette: Optional[Dict[str, str]] = None,
+    verbose: int = 1
 ) -> SMARTResult:
     """
     Executes reaction pathway analysis (SMART-MS and SMART-MG) on a reacting flow trajectory.
@@ -56,6 +57,7 @@ def analyze(
         fallback_pressure_pa: Constant pressure in Pa if 'P' column is missing in df.
         cache_path: Optional path to save/load pre-parsed G and E flux matrices.
         palette: Optional color dictionary overriding standard sub-mechanism colors.
+        verbose: Diagnostic output verbosity (0=silent, 1=standard milestones & summary, 2=detailed states/chunks).
         
     Returns:
         SMARTResult: Container holding allocated pathway tensors, accessors, and plotters.
@@ -80,6 +82,8 @@ def analyze(
     # 2. Check cache for G and E matrices
     parsed_data = None
     if cache_path and os.path.exists(cache_path):
+        if verbose >= 1:
+            print(f"[pySMART] Loading pre-parsed flux matrices from cache: {cache_path}")
         logger.info(f"Loading pre-parsed flux matrices from cache: {cache_path}")
         with open(cache_path, "rb") as f:
             parsed_data = pickle.load(f)
@@ -93,7 +97,8 @@ def analyze(
             tracked_element=tracked_element,
             sub_mech_dict=sub_mech_dict,
             n_workers=n_workers,
-            fallback_pressure_pa=fallback_pressure_pa
+            fallback_pressure_pa=fallback_pressure_pa,
+            verbose=verbose
         )
         if cache_path:
             os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
@@ -109,7 +114,8 @@ def analyze(
         tracked_species=tracked_sp,
         stage_col=stage_col or "stage",
         fallback_pressure_pa=fallback_pressure_pa,
-        explicit_jumps=explicit_mixing_jumps
+        explicit_jumps=explicit_mixing_jumps,
+        verbose=verbose
     )
     
     # 4. Routing logic: Serial vs SMART-MG Multi-Grid
@@ -126,16 +132,20 @@ def analyze(
             n_workers=n_workers,
             delta_P_mix=delta_P_mix,
             k_mix=k_mix,
-            max_iter_level2=max_iter
+            max_iter_level2=max_iter,
+            verbose=verbose
         )
     else:
         logger.info(f"Solving using base SMART serial algorithm...")
         F, H, Q, U, N = run_smart_algorithm(
             G=G, E=E, R=R, P=P, t=t,
-            max_iter=max_iter
+            max_iter=max_iter,
+            delta_P_mix=delta_P_mix,
+            k_mix=k_mix,
+            verbose=verbose
         )
         
-    return SMARTResult(
+    res = SMARTResult(
         F=F, H=H, Q=Q, U=U, N=N,
         time=t,
         tracked_species=tracked_sp,
@@ -144,3 +154,8 @@ def analyze(
         stage_slices=stage_slices,
         palette=palette
     )
+
+    if verbose >= 1:
+        res.print_diagnostics()
+
+    return res

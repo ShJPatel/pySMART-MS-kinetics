@@ -227,6 +227,7 @@ def parse_cantera_data(
     n_workers: int = None,
     fallback_pressure_pa: float = None,
     mixing_jumps: dict = None,
+    verbose: int = 1,
 ):
     """
     Parses a user-specified dataframe to generate G, E, R, P matrices.
@@ -272,6 +273,14 @@ def parse_cantera_data(
     
     t = df[time_col].values
 
+    if verbose >= 1:
+        sp_sample = ', '.join([gas_dummy.species_names[i] for i in tracked_species_indices[:8]])
+        if nS > 8:
+            sp_sample += "..."
+        print(f"[pySMART:Parser] Parsing Cantera elemental flux graph:")
+        print(f"  * Element: '{tracked_element}' | Trajectory states: {nL:,} | Sub-mechanisms: {nM}")
+        print(f"  * Tracked species ({nS}): {sp_sample}")
+
     # Resolve pressure: prefer a per-row 'P' column; require an explicit fallback
     # if it is missing so we never silently evaluate at the wrong pressure.
     has_pressure_col = 'P' in df.columns
@@ -282,6 +291,8 @@ def parse_cantera_data(
                 "provided. Pass fallback_pressure_pa=<value_in_Pa> (e.g. "
                 "c.P_inlet or P_atm * ct.one_atm) to parse_cantera_data()."
             )
+        if verbose >= 2:
+            print(f"  * Fallback pressure: {fallback_pressure_pa:.0f} Pa ({fallback_pressure_pa / ct.one_atm:.2f} atm)")
         logger.info(
             f"No 'P' column in DataFrame using prescribed 'fallback'  pressure "
             f"{fallback_pressure_pa:.0f} Pa ({fallback_pressure_pa / ct.one_atm:.2f} atm) "
@@ -301,19 +312,21 @@ def parse_cantera_data(
     E = np.zeros((nS, nS, nM, nL))
     
     completed_count = 0
-    log_interval = max(1, nL // 10) # Log roughly every 10% progress
+    log_interval = max(1, nL // 5) # Log roughly every 20% progress
 
     if n_workers <= 0:
-        logger.info(f"Parsing {nL} states sequentially...")
+        if verbose >= 1:
+            print(f"  * Parsing {nL} states sequentially...")
         for arg in worker_args:
             idx, G_z, E_z = _process_single_state(arg)
             G[:, :, idx] = G_z
             E[:, :, :, idx] = E_z
             completed_count += 1
-            if completed_count % log_interval == 0 or completed_count == nL:
-                logger.debug(f"Parsed {completed_count}/{nL} states ({(completed_count/nL)*100:.1f}%)")
+            if (completed_count % log_interval == 0 or completed_count == nL) and verbose >= 2:
+                print(f"    - Parsed {completed_count}/{nL} states ({(completed_count/nL)*100:.0f}%)")
     else:
-        logger.info(f"Mapping {nL} states across process pool with {n_workers} workers...")
+        if verbose >= 1:
+            print(f"  * Parsing {nL} states in parallel across {n_workers} workers...")
         with ProcessPoolExecutor(max_workers=n_workers) as executor:
             # Using as_completed instead of map to track dynamic progress and log it
             futures = {executor.submit(_process_single_state, arg): arg for arg in worker_args}
@@ -325,11 +338,12 @@ def parse_cantera_data(
                 E[:, :, :, idx] = E_z
                 
                 completed_count += 1
-                if completed_count % log_interval == 0 or completed_count == nL:
-                    logger.debug(f"Parsed {completed_count}/{nL} states ({(completed_count/nL)*100:.1f}%)")
+                if (completed_count % log_interval == 0 or completed_count == nL) and verbose >= 2:
+                    print(f"    - Parsed {completed_count}/{nL} states ({(completed_count/nL)*100:.0f}%)")
         
     # Calculate R and P serially (they are very fast matrix operations)
-    logger.info("Calculating Source (R) and Pool (P) matrices serially...")
+    if verbose >= 2:
+        print(f"  * Computing Source (R) and Pool (P) matrices serially...")
     R_mat = np.zeros((nS, nL))
     P = np.zeros((nS, nL))
     
@@ -350,5 +364,7 @@ def parse_cantera_data(
             
     tracked_species_names = [gas_dummy.species_names[i] for i in tracked_species_indices]
             
+    if verbose >= 1:
+        print(f"  [OK] Flux matrices constructed: G {G.shape}, E {E.shape}")
     logger.info(f"Parallel Cantera parsing completed successfully.")
     return G, E, R_mat, P, t, tracked_species_names, sub_mechs

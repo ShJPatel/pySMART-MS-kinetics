@@ -84,7 +84,7 @@ def run_smart_timestepping_jit(G, E, R, P, t, F, H, Q, U, N, tol1, tol2, max_ite
             for i in range(nS):
                 allocate_pool(H, N, G, F, P, Q, R, U, t, i, k, z, nS, nM, delta_P_mix, k_mix)
 
-def run_smart_algorithm(G, E, R, P, t, tol1=1e-5, tol2=1e-5, max_iter=5, delta_P_mix=None, k_mix=-1):
+def run_smart_algorithm(G, E, R, P, t, tol1=1e-5, tol2=1e-5, max_iter=5, delta_P_mix=None, k_mix=-1, verbose=1):
     """
     Executes the SMART algorithm iterative procedure to resolve
     sub-mechanism elemental allocations across species.
@@ -100,6 +100,7 @@ def run_smart_algorithm(G, E, R, P, t, tol1=1e-5, tol2=1e-5, max_iter=5, delta_P
         max_iter (int): Maximum iterations to prevent infinite loops.
         delta_P_mix (nS, nL, optional): Stage mixing jump matrix for multi-stage combustors.
         k_mix (int, optional): Sub-mechanism index for Staged Mixing.
+        verbose (int, default 1): Diagnostic print verbosity (0=silent, 1=table, 2=detailed).
         
     Returns:
         F, H, Q, U, N matrices.
@@ -110,6 +111,13 @@ def run_smart_algorithm(G, E, R, P, t, tol1=1e-5, tol2=1e-5, max_iter=5, delta_P
         delta_P_mix = np.zeros((nS, nL), dtype=np.float64)
     else:
         delta_P_mix = np.ascontiguousarray(delta_P_mix, dtype=np.float64)
+
+    if verbose >= 1:
+        print(f"[pySMART:Solver] Initializing SMART Serial Solver:")
+        print(f"  * Grid points: {nL:,} | Species: {nS} | Sub-mechanisms: {nM}")
+        print(f"  * Iterative convergence (max {max_iter} iters, tol={tol1:.1e}):")
+        print(f"    {'Iter':>4} | {'Max Residual':>12} | {'eps_F':>10} | {'eps_H':>10} | {'eps_Q':>10} | {'Time':>7}")
+        print(f"    {'-'*4}-+-{'-'*12}-+-{'-'*10}-+-{'-'*10}-+-{'-'*10}-+-{'-'*7}")
 
     logger.info(f"Starting SMART Algorithm with {nS} species, {nM} sub-mechanisms, and {nL} spatial/temporal steps.")
     start_time_total = time.time()
@@ -185,11 +193,17 @@ def run_smart_algorithm(G, E, R, P, t, tol1=1e-5, tol2=1e-5, max_iter=5, delta_P
         loop_time = time.time() - loop_start_time
         iter_count += 1
 
+        if verbose >= 1:
+            print(f"    {iter_count:>4} | {epsilon:>12.3e} | {eps_F:>10.2e} | {eps_H:>10.2e} | {eps_Q:>10.2e} | {loop_time:>6.2f}s")
+
         logger.info(f"Main loop {iter_count} complete in {loop_time:.2f}s | "
                     f"Overall Epsilon: {epsilon:.6e} "
                     f"(eps_F={eps_F:.2e}, eps_H={eps_H:.2e}, eps_Q={eps_Q:.2e})")
 
     total_time = time.time() - start_time_total
+    status = "converged" if epsilon <= tau else f"stopped (max_iter={max_iter})"
+    if verbose >= 1:
+        print(f"  [OK] Serial SMART solve {status} | Final residual: {epsilon:.2e} | Total solve time: {total_time:.2f}s")
     if epsilon <= tau:
         logger.info(f"SMART Algorithm converged in {iter_count} iterations and {total_time:.2f}s.")
     else:

@@ -1,0 +1,34 @@
+# Byte-compiled / optimized / Numba cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.nbc
+*.nbi
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Unit test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local scratches and logs
+scratch/
+*.log
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Editor / OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

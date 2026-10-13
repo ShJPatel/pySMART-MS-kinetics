@@ -245,7 +245,58 @@ fig.savefig("phase_portrait.png", dpi=300)
 
 ---
 
-## 7. Exporting Results
+## 7. Diagnostic Printing & Terminal Summaries
+
+`pySMART` provides configurable verbosity levels (`verbose=0, 1, 2`) and formatted ASCII diagnostic reports:
+
+- **`verbose=0`**: Silent mode (suppresses progress, logs warnings/errors only). Ideal for parametric sweep loops or batch processing.
+- **`verbose=1` (Default)**: Clean terminal milestones including:
+  - Trajectory state count, tracked element, and tracked species summary.
+  - Multi-stage boundary recognition and slice indices.
+  - SMART-MG dynamic chunking partition and worker pool concurrency.
+  - Level-0 warmup timing and Level-2 outer iteration convergence table (`Iter`, `Max Residual`, `eps_F`, `eps_H`, `eps_Q`, `Time`).
+  - Automated terminal ASCII summary box reporting gross formation, gross destruction, net yield, and percentage formation share.
+- **`verbose=2`**: Comprehensive engineering diagnostics (state-by-state chunk parsing progress, exact discrete mixing jump vectors $\Delta P_i^{\mathrm{mix}}$, and per-subdomain boundaries).
+
+### Inspecting Diagnostics on `SMARTResult`
+You can display the formatted ASCII diagnostic summary for any target species or time window at any time:
+
+```python
+# Print formatted ASCII diagnostic table
+result.print_diagnostics(target="NO")
+
+# Or print for a specific time window
+result.print_diagnostics(target="NO", t_span=(0.001, 0.003))
+
+# Or retrieve the summary string directly
+summary_text = result.summary(target="NO")
+```
+
+Example terminal output:
+```text
+========================================================================
+  pySMART PATHWAY APPORTIONMENT SUMMARY: NO
+  Domain: t = 0.000 ms to 4.020 ms (dt = 4.020 ms)
+========================================================================
+  Sub-Mechanism      |  Formation | Destruction |  Net Yield |   Share
+  -------------------+------------+-------------+------------+--------
+  Prompt             |   3.99e-06 |    0.00e+00 |   3.99e-06 |    4.4%
+  Thermal            |   7.48e-05 |    0.00e+00 |   7.48e-05 |   82.5%
+  N2O                |   3.73e-06 |    0.00e+00 |   3.73e-06 |    4.1%
+  NNH                |   7.64e-06 |    0.00e+00 |   7.64e-06 |    8.4%
+  NO2                |   4.30e-08 |    4.32e-08 |  -2.48e-10 |    0.0%
+  HNO                |   2.35e-07 |    2.49e-06 |  -2.25e-06 |    0.3%
+  Reburn             |   1.96e-07 |    3.15e-08 |   1.65e-07 |    0.2%
+  -------------------+------------+-------------+------------+--------
+  GROSS FORMATION    |   9.06e-05 |             |            | 100.0%
+  GROSS DESTRUCTION  |            |    2.56e-06 |            |
+  NET SPECIES YIELD  |            |             |   8.80e-05 | [kmol/m^3]
+========================================================================
+```
+
+---
+
+## 8. Exporting Results
 
 Export time-resolved allocated pathway rates ($U$) and running pools ($Q$) directly to standard pandas DataFrames or CSV files:
 
@@ -261,7 +312,7 @@ df_tau.to_csv("pathway_timescales.csv", index=False)
 
 ---
 
-## 8. Mechanism Mappings
+## 9. Mechanism Mappings
 
 `pySMART` ships with curated, validated reaction mappings for:
 - **`gri30.yaml`** (Thermal, Prompt, N2O, NNH, NO2, HNO, Reburn)
@@ -281,7 +332,7 @@ result = smart.analyze(
 
 ---
 
-## 9. Runnable Examples
+## 10. Runnable Examples
 
 The [`examples/`](examples/) directory contains standalone, turnkey demonstration scripts mirroring the physical models in NRRL and thesis analyses:
 

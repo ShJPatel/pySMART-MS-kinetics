@@ -217,31 +217,10 @@ def run_smart_algorithm_multigrid(G, E, R, P, t,
                                    k_mix: int = -1,
                                    stage_slices: dict = None,
                                    return_iteration_history: bool = False,
-                                   tracked_species_idx: int = None):
+                                   tracked_species_idx: int = None,
+                                   verbose: int = 1):
     """
     Hierarchical multi-grid SMART algorithm with automatic dynamic chunking and multi-stage mixing support.
-
-    Args:
-        G:  (nS, nS, nL)       Global element flux matrix.
-        E:  (nS, nS, nM, nL)   Initiation flux matrix.
-        R:  (nS, nL)            Net source matrix.
-        P:  (nS, nL)            Pre-integrated cumulative pool matrix.
-        t:  (nL,)               Time array.
-        n_chunks:           Number of parallel chunks (None for automatic dynamic allocation).
-        tol1, tol2:         Inner convergence tolerances.
-        max_iter_inner:     Max inner JIT iterations per chunk per L1 call.
-        max_iter_level2:    Max global Level-2 iterations.
-        min_chunk_size:     Minimum points per chunk (default 30).
-        target_chunk_size:  Ideal target points per chunk for dynamic sizing (default 50).
-        n_workers:          Process pool size (None for automatic dynamic allocation).
-        delta_P_mix:        (nS, nL) Stage mixing jump matrix for multi-stage combustors.
-        k_mix:              Sub-mechanism index for Staged Mixing.
-        stage_slices:       Dict or list of stage slices to ensure clean chunk boundary alignment.
-        return_iteration_history: If True, returns (F, H, Q, U, N, history_dict).
-        tracked_species_idx: Specific species index to snapshot integrated yields in history (e.g. i_NO).
-
-    Returns:
-        F, H, Q, U, N (and history_dict if return_iteration_history=True)
     """
     import multiprocessing
     from .solver_serial import run_smart_timestepping_jit
@@ -263,11 +242,18 @@ def run_smart_algorithm_multigrid(G, E, R, P, t,
         if n_workers is None:
             n_workers = auto_workers
 
+    if verbose >= 1:
+        print(f"[pySMART:Solver] Initializing SMART-MG (Multi-Grid) Solver:")
+        print(f"  * Grid points: {nL:,} | Species: {nS} | Sub-mechanisms: {nM}")
+        print(f"  * Domain partition: {n_chunks} chunks (~{nL//n_chunks} pts/chk) | Worker concurrency: {n_workers}")
+
     logger.info(f"Multigrid SMART (Dynamic Sizing) | nS={nS} nM={nM} nL={nL} | "
                 f"n_chunks={n_chunks} (avg {nL//n_chunks} pts/chk) | n_workers={n_workers}")
     t_total = time.time()
 
     # ── Level 0: 1-pass serial warmup ────────────────────────────────────────
+    if verbose >= 1:
+        print(f"  * Level-0 warmup: 1 serial pass to initialize nu_ik allocation factors...")
     logger.info("Level-0 warmup: 1 serial pass to initialise ν_ik…")
     t0 = time.time()
 
@@ -289,11 +275,15 @@ def run_smart_algorithm_multigrid(G, E, R, P, t,
         G_den_total[i] = np.trapz(np.sum(G[i, :, :], axis=0), t)
     N = _update_nu(F_num_total, G_den_total, N)
     t_warmup = time.time() - t0
+    if verbose >= 1:
+        print(f"  [OK] Level-0 warmup completed in {t_warmup:.2f}s")
     logger.info(f"Level-0 complete in {t_warmup:.2f}s")
 
     # Compute chunk boundaries (respecting stage boundaries if provided)
     bounds = _make_chunks(nL, n_chunks, min_chunk=min_chunk_size, stage_slices=stage_slices)
     n_actual = len(bounds)
+    if verbose >= 2:
+        print(f"  * Chunk decomposition: {[(s, e, e-s) for s, e in bounds]}")
     logger.info(f"Chunks: {[(s, e, e-s) for s, e in bounds]}")
 
     # Global output arrays (assembled from chunks)
@@ -324,6 +314,11 @@ def run_smart_algorithm_multigrid(G, E, R, P, t,
     pool = ProcessPoolExecutor(max_workers=n_workers) if n_workers > 1 else None
 
     try:
+        if verbose >= 1:
+            print(f"  * Starting Level-2 global synchronization (max {max_iter_level2} iters, tol={tol1:.1e}):")
+            print(f"    {'Iter':>4} | {'Max Residual':>12} | {'eps_F':>10} | {'eps_H':>10} | {'eps_Q':>10} | {'Time':>7}")
+            print(f"    {'-'*4}-+-{'-'*12}-+-{'-'*10}-+-{'-'*10}-+-{'-'*10}-+-{'-'*7}")
+
         while epsilon > tol1 and level2_iter < max_iter_level2:
             t_l2 = time.time()
             F_prev = F_global.copy()
@@ -381,6 +376,9 @@ def run_smart_algorithm_multigrid(G, E, R, P, t,
             level2_iter += 1
             iter_duration = time.time() - t_l2
 
+            if verbose >= 1:
+                print(f"    {level2_iter:>4} | {epsilon:>12.3e} | {eps_F:>10.2e} | {eps_H:>10.2e} | {eps_Q:>10.2e} | {iter_duration:>6.2f}s")
+
             if return_iteration_history:
                 sp_idx = tracked_species_idx if tracked_species_idx is not None else 0
                 iter_yields = [float(np.trapz(U_global[sp_idx, k, :], t)) for k in range(nM)]
@@ -404,7 +402,9 @@ def run_smart_algorithm_multigrid(G, E, R, P, t,
             pool.shutdown(wait=True)
 
     elapsed = time.time() - t_total
-    status = "converged" if epsilon <= tol1 else f"stopped at max_iter_level2={max_iter_level2}"
+    status = "converged" if epsilon <= tol1 else f"stopped (max_iter={max_iter_level2})"
+    if verbose >= 1:
+        print(f"  [OK] SMART-MG solve {status} | Final residual: {epsilon:.2e} | Total solve time: {elapsed:.2f}s")
     logger.info(f"Multigrid SMART {status} | eps={epsilon:.3e} | "
                 f"{level2_iter} L2 iters | {elapsed:.2f}s total")
 
@@ -420,7 +420,8 @@ def run_smart_algorithm_multigrid(G, E, R, P, t,
 def run_smart_algorithm(G, E, R, P, t,
                         tol1=1e-5, tol2=1e-5, max_iter=5,
                         n_chunks: int = None, n_workers: int = None,
-                        target_chunk_size: int = 45):
+                        target_chunk_size: int = 45,
+                        verbose: int = 1):
     """
     Drop-in replacement for smart_core.run_smart_algorithm using multigrid
     with automatic dynamic chunking and worker sizing.
@@ -429,5 +430,6 @@ def run_smart_algorithm(G, E, R, P, t,
         G, E, R, P, t,
         n_chunks=n_chunks, tol1=tol1, tol2=tol2,
         max_iter_inner=max_iter, max_iter_level2=max_iter,
-        n_workers=n_workers, target_chunk_size=target_chunk_size
+        n_workers=n_workers, target_chunk_size=target_chunk_size,
+        verbose=verbose
     )

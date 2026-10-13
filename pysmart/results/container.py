@@ -105,6 +105,53 @@ class SMARTResult:
         df_yields["formation_share_%"] = (df_yields["formation_yield"] / (tot_formation + 1e-30)) * 100.0
         return df_yields
 
+    def summary(self, target: Optional[str] = None, t_span: Optional[Tuple[float, float]] = None) -> str:
+        """
+        Generates a formatted ASCII diagnostic summary table of cumulative yields,
+        formation shares, and destruction percentages for terminal printing.
+        """
+        tgt = target or self.target_species
+        df_y = self.get_cumulative_yields(target=tgt, t_span=t_span)
+        
+        tot_pos = df_y["formation_yield"].sum()
+        tot_neg = df_y["destruction_yield"].sum()
+        tot_net = df_y["net_yield"].sum()
+        
+        t_start = self.time[0] if t_span is None else t_span[0]
+        t_end = self.time[-1] if t_span is None else t_span[1]
+        
+        lines = []
+        lines.append("=" * 72)
+        lines.append(f"  pySMART PATHWAY APPORTIONMENT SUMMARY: {tgt}")
+        lines.append(f"  Domain: t = {t_start*1e3:.3f} ms to {t_end*1e3:.3f} ms (dt = {(t_end - t_start)*1e3:.3f} ms)")
+        lines.append("=" * 72)
+        lines.append(f"  {'Sub-Mechanism':<18} | {'Formation':>10} | {'Destruction':>11} | {'Net Yield':>10} | {'Share':>7}")
+        lines.append(f"  {'-'*18}-+-{'-'*10}-+-{'-'*11}-+-{'-'*10}-+-{'-'*7}")
+        
+        for _, row in df_y.iterrows():
+            m_name = row["sub_mechanism"]
+            y_pos = row["formation_yield"]
+            y_neg = row["destruction_yield"]
+            y_net = row["net_yield"]
+            share = row["formation_share_%"]
+            
+            # Highlight non-zero pathways
+            if abs(y_pos) > 1e-15 or abs(y_neg) > 1e-15:
+                lines.append(f"  {m_name:<18} | {y_pos:>10.2e} | {y_neg:>11.2e} | {y_net:>10.2e} | {share:>6.1f}%")
+                
+        lines.append(f"  {'-'*18}-+-{'-'*10}-+-{'-'*11}-+-{'-'*10}-+-{'-'*7}")
+        lines.append(f"  {'GROSS FORMATION':<18} | {tot_pos:>10.2e} |             |            | 100.0%")
+        lines.append(f"  {'GROSS DESTRUCTION':<18} |            | {tot_neg:>11.2e} |            |")
+        lines.append(f"  {'NET SPECIES YIELD':<18} |            |             | {tot_net:>10.2e} | [kmol/m^3]")
+        lines.append("=" * 72)
+        return "\n".join(lines)
+
+    def print_diagnostics(self, target: Optional[str] = None, t_span: Optional[Tuple[float, float]] = None) -> None:
+        """
+        Prints formatted pathway apportionment diagnostics directly to stdout.
+        """
+        print("\n" + self.summary(target=target, t_span=t_span) + "\n")
+
     def get_turnover_timescales(self, target: Optional[str] = None, target_conc_traj: Optional[np.ndarray] = None) -> pd.DataFrame:
         """
         Computes path-specific turnover timescales tau_{i,k}^flux = [X_i] / |u_{i,k}|.
