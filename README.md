@@ -134,9 +134,9 @@ fig.savefig("multistage_rates_no.png", dpi=300, bbox_inches="tight")
   <img src="examples/02_multistage_rates_no.png" alt="Multi-Stage Allocated Pathway Rates (SMART-MS)" width="85%"/>
 </p>
 
-- **Stage 1 (Primary Flame):** Stoichiometric combustion actively forms Thermal $\ch{NO}$ up to high temperatures.
-- **Stage Mixing Interface:** Secondary fuel injection ($50\%$ staged fuel) physically dilutes pre-existing gases without instantaneous chemical reaction. SMART-MS contracts pre-existing pools by the exact dilution factor.
-- **Stage 2 (Rich Relaxation):** In a fuel-rich environment, Reburn becomes an active sink (negative rate), rapidly destroying carry-over $\ch{NO}$ while intermediate cyanides ($\ch{HCN}$) are tracked with exact mass closure.
+- **Stage 1 (Rich Zone, $\phi = 1.35$):** Fuel-rich combustion produces high concentrations of prompt $\ch{NO}$ and intermediate carbon monoxide ($\sim 7.6\%\,\ch{CO}$) at reduced oxygen availability.
+- **Quench Interface ($t = 2.0\,\mathrm{ms}$):** Secondary air injection immediately dilutes local concentrations ($\Delta P_i^{\mathrm{mix}}$). SMART-MS accounts for oxidizer inflow and contracts existing pools by the exact dilution factor.
+- **Stage 2 (Lean Burnout, $\phi = 0.70$):** Additional thermal $\ch{NO}$ forms as secondary oxygen burns the remaining $\ch{CO}$, while SMART-MS maintains exact mass closure across the transition.
 
 ---
 
@@ -286,4 +286,4 @@ result = smart.analyze(
 The [`examples/`](examples/) directory contains standalone, turnkey demonstration scripts mirroring the physical models in NRRL and thesis analyses:
 
 - **[`examples/01_single_stage_premixed.py`](examples/01_single_stage_premixed.py)**: Single-stage stoichiometric $\ch{CH4}/\text{air}$ auto-ignition trajectory ($T_{\mathrm{in}}=600\,\mathrm{K}$, $P=5\,\mathrm{atm}$, GRI-Mech 3.0). Generates the complete diagnostic suite: allocated source rates ($U$), fractional dominance stackplot ($S^+$), 1D phase portrait (ROP vs. Temperature), cumulative pools ($Q$), and directed reaction pathway network graphs.
-- **[`examples/02_multistage_staged_combustion.py`](examples/02_multistage_staged_combustion.py)**: Axially staged combustor model with discrete mixing jump tracking (SMART-MS). Synthesizes a stoichiometric core flame (Stage 1), discrete $50\%$ staged fuel injection at the interface, and subsequent rich relaxation (Stage 2) resolving both thermal $\ch{NO}$ reburn destruction and intermediate cyanide ($\ch{HCN}$) formation.
+- **[`examples/02_multistage_staged_combustion.py`](examples/02_multistage_staged_combustion.py)**: Decoupled two-stage Rich-Quench-Lean (RQL) combustor model using pure Cantera. Simulates rich primary combustion ($\phi=1.35$), rapid secondary air quench ($\Delta P_i^{\mathrm{mix}}$ jump tracking), and subsequent lean burnout ($\phi=0.70$), comparing pathway rates and cumulative pools across both stages.

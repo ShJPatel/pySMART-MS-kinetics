@@ -1,10 +1,12 @@
 """
-Example 2: Multi-Stage Axially Staged Combustor Analysis (SMART-MS)
-Mirrors the canonical NRRL axially staged combustor demonstration:
-- Stage 1: Stoichiometric primary flame products (CH4/air, Tin=600 K, P=10 atm)
-- Stage Boundary: Discrete mixing jump tracking (50% staged fuel injection)
-- Stage 2: Rich relaxation stage (Infinite-rate reactor, target_time=5 ms)
-- Multi-target tracking: Resolves both NO destruction and intermediate cyanide (HCN) formation
+Example 2: Multi-Stage Staged Combustor Analysis (SMART-MS)
+Demonstrates pySMART on a classic Rich-Quench-Lean (RQL) staged combustion system:
+- Stage 1 (Rich Zone): Primary fuel-rich combustion (phi = 1.35) forming rich NO intermediates.
+- Interface (Quench / Secondary Air Mixing): Discrete air injection dilutes phi to 0.70.
+  SMART-MS automatically attributes incoming oxidizer to 'Staged Mixing' and tracks exact mass jumps.
+- Stage 2 (Lean Burnout): Secondary lean combustion (phi = 0.70) burning unburnt CO and forming lean NO.
+
+Completely decoupled from any external combustor frameworks: built purely with standard Cantera.
 """
 
 import matplotlib.pyplot as plt
@@ -13,26 +15,21 @@ import pandas as pd
 import cantera as ct
 import pysmart as smart
 
-def simulate_nrrl_staged_combustor():
+def simulate_rql_combustor():
     """
-    Simulates a 2-stage staged combustor trajectory matching NRRL.Combustor conditions:
-    P = 10 atm, T_inlet = 600 K, frac_m_fuel_staged = 0.5 (50% fuel staged).
+    Simulates a 2-stage Rich-Quench-Lean (RQL) combustor trajectory using pure Cantera:
+    - Stage 1: Rich combustion (phi = 1.35, P = 5 atm, residence time = 2.0 ms)
+    - Mixing Interface: Rapid secondary air injection diluting phi to 0.70
+    - Stage 2: Lean burnout (phi = 0.70, P = 5 atm, residence time = 2.0 ms)
     """
     ct.suppress_thermo_warnings()
     mech = "gri30.yaml"
-    gas = ct.Solution(mech)
-    P_val = 10.0 * ct.one_atm
-    T_in = 600.0
+    P = 5.0 * ct.one_atm
 
-    print("   Setting up Stage 1: Stoichiometric Core Combustion (Tin=600K, P=10atm)...")
-    gas.TP = 1100.0, P_val  # Ignition start temperature
-    gas.set_equivalence_ratio(1.0, "CH4:1", "O2:1, N2:3.76")
-    
-    # Equilibrium stopping state
-    gas_eq = ct.Solution(mech)
-    gas_eq.TP = T_in, P_val
-    gas_eq.set_equivalence_ratio(1.0, "CH4:1", "O2:1, N2:3.76")
-    gas_eq.equilibrate("HP")
+    print("1. Simulating Stage 1: Rich Combustion Zone (phi = 1.35, P = 5 atm)...")
+    gas = ct.Solution(mech)
+    gas.TP = 1400.0, P
+    gas.set_equivalence_ratio(1.35, "CH4:1", "O2:1, N2:3.76")
 
     r1 = ct.IdealGasConstPressureReactor(gas)
     sim1 = ct.ReactorNet([r1])
@@ -40,55 +37,54 @@ def simulate_nrrl_staged_combustor():
     times, temps, pressures, stages = [], [], [], []
     species_X = {sp: [] for sp in gas.species_names}
 
-    t_prev = 0.0
     step_cnt = 0
-    while sim1.time < 0.05:
+    while sim1.time < 0.002:  # 2.0 ms rich stage
         sim1.step()
-        dt = sim1.time - t_prev
-        t_prev = sim1.time
         step_cnt += 1
-        if step_cnt % 5 == 0 or (gas.T >= (gas_eq.T - 20.0) and dt >= 0.002):
+        if step_cnt % 3 == 0 or sim1.time >= 0.002:
             times.append(sim1.time)
             temps.append(gas.T)
             pressures.append(gas.P)
             stages.append(1)
             for i, sp in enumerate(gas.species_names):
                 species_X[sp].append(gas.X[i])
-        if gas.T >= (gas_eq.T - 20.0) and dt >= 0.002:
-            break
 
     t1_end = times[-1]
-    print(f"   Stage 1 Complete: {len(times)} states, exit T={temps[-1]:.1f} K, exit NO={species_X['NO'][-1]*1e6:.1f} ppm")
+    print(f"   Stage 1 Complete: exit T = {temps[-1]:.1f} K, exit NO = {species_X['NO'][-1]*1e6:.1f} ppm, CO = {species_X['CO'][-1]*100:.2f}%")
 
-    # Stage 2: Secondary Staged Fuel Injection (50% staged fuel diverted to rich zone)
-    print("   Simulating Stage Boundary Injection: Adding 50% staged CH4...")
-    fuel = ct.Solution(mech)
-    fuel.TPX = T_in, P_val, "CH4:1"
-    
-    far = 1.0 / gas.stoich_air_fuel_ratio("CH4:1", "O2:1, N2:3.76")
-    m_fuel_stoich = 1.0 * far / (1.0 + far)
-    m_fuel_rr = m_fuel_stoich  # 50% staged fuel fraction
+    print("\n2. Simulating Quench Interface: Secondary Air Injection (phi = 1.35 -> 0.70)...")
+    air = ct.Solution(mech)
+    air.TPX = 650.0, P, "O2:0.21, N2:0.79"
 
-    mixed = ct.Quantity(gas, mass=1.0, constant="HP") + ct.Quantity(fuel, mass=m_fuel_rr, constant="HP")
-    gas_rich = mixed.phase
+    # Compute stoichiometric air/fuel ratio and required secondary air mass
+    AF_stoich = gas.stoich_air_fuel_ratio("CH4:1", "O2:0.21, N2:0.79")
+    m_fuel = 1.0 / (1.0 + AF_stoich / 1.35)
+    m_air_needed = m_fuel * (AF_stoich / 0.70)
+    m_air_add = m_air_needed - (1.0 - m_fuel)
 
-    r2 = ct.IdealGasConstPressureReactor(gas_rich)
+    # Constant enthalpy & pressure mixing
+    mixed = ct.Quantity(gas, mass=1.0, constant="HP") + ct.Quantity(air, mass=m_air_add, constant="HP")
+    gas_lean = mixed.phase
+
+    print(f"   Mixing Interface: exit T = {gas_lean.T:.1f} K, NO after air dilution = {gas_lean['NO'].X[0]*1e6:.1f} ppm")
+
+    print("\n3. Simulating Stage 2: Lean Burnout Zone (phi = 0.70, P = 5 atm)...")
+    r2 = ct.IdealGasConstPressureReactor(gas_lean)
     sim2 = ct.ReactorNet([r2])
 
-    print("   Setting up Stage 2: Rich Relaxation (target_time = 5 ms)...")
     step_cnt = 0
-    while sim2.time < 0.005:
+    while sim2.time < 0.002:  # 2.0 ms lean burnout
         sim2.step()
         step_cnt += 1
-        if step_cnt % 3 == 0 or sim2.time >= 0.005:
+        if step_cnt % 3 == 0 or sim2.time >= 0.002:
             times.append(t1_end + sim2.time)
-            temps.append(gas_rich.T)
-            pressures.append(gas_rich.P)
+            temps.append(gas_lean.T)
+            pressures.append(gas_lean.P)
             stages.append(2)
-            for i, sp in enumerate(gas_rich.species_names):
-                species_X[sp].append(gas_rich.X[i])
+            for i, sp in enumerate(gas_lean.species_names):
+                species_X[sp].append(gas_lean.X[i])
 
-    print(f"   Stage 2 Complete: exit T={temps[-1]:.1f} K, exit NO={species_X['NO'][-1]*1e6:.1f} ppm")
+    print(f"   Stage 2 Complete: exit T = {temps[-1]:.1f} K, exit NO = {species_X['NO'][-1]*1e6:.1f} ppm")
 
     df = pd.DataFrame({"time": times, "T": temps, "P": pressures, "stage": stages})
     for sp, vals in species_X.items():
@@ -97,18 +93,18 @@ def simulate_nrrl_staged_combustor():
     return df, t1_end
 
 def main():
-    print("1. Generating NRRL Axially Staged Combustor Trajectory...")
-    df, t_stage1_end = simulate_nrrl_staged_combustor()
-    print(f"   Total composite trajectory: {len(df)} points across 2 stages.")
+    print("=================================================================")
+    print("  pySMART-MS: Decoupled Multi-Stage RQL Combustion Analysis      ")
+    print("=================================================================\n")
 
-    # Zero-shift time relative to the stage interface (t=0 at secondary fuel injection)
-    df["time_rel_boundary"] = df["time"] - t_stage1_end
+    df, t_stage1_end = simulate_rql_combustor()
+    print(f"\nComposite RQL trajectory generated: {len(df)} points across 2 stages.")
 
-    print("\n2. Executing pySMART Multi-Stage Jump Tracking (SMART-MS)...")
+    print("\n4. Executing pySMART with Multi-Stage Jump Tracking (SMART-MS)...")
     result = smart.analyze(
         df=df,
         mech="gri30.yaml",
-        time_col="time_rel_boundary",
+        time_col="time",
         tracked_element="N",
         target_species="NO",
         stage_col="stage",    # Enables discrete stage mass-jump tracking
@@ -116,49 +112,40 @@ def main():
         n_workers=4
     )
 
-    print("\n3. Identified Stage Slices:")
+    print("\n5. Identified Stage Slices:")
     for st_name, s_slice in result.stage_slices.items():
         print(f"   Stage {st_name}: rows {s_slice.start} to {s_slice.stop}")
 
-    print("\n4. Integrated Cumulative Yields for NO:")
+    print("\n6. Integrated Cumulative Yields for NO:")
     df_no = result.get_cumulative_yields(target="NO")
     print(df_no.to_string(index=False))
 
-    print("\n5. Integrated Cumulative Yields for Intermediate HCN:")
-    df_hcn = result.get_cumulative_yields(target="HCN")
-    print(df_hcn.to_string(index=False))
+    print("\n7. Generating publication diagnostic plots across both combustion zones...")
+    t_boundary_ms = t_stage1_end * 1e3
 
-    print("\n6. Generating diagnostic plots zoomed in on stage interface & rich reaction zone...")
-    # Zoom limits: [-0.3 ms, 1.2 ms] around stage boundary
-    # Shows late Stage 1 flame exit followed by instantaneous mixing jump and rich reburning!
-    zoom_xlim = (-0.3, 1.2)
-
-    # Plot NO rates
+    # 7a. Plot allocated pathway rates
     fig_rates, ax_rates = result.plot_rates(target="NO", t_ms=True)
-    ax_rates.set_xlim(zoom_xlim)
-    ax_rates.axvline(0.0, color="gray", linestyle=":", label="Stage Boundary (t=0)")
-    ax_rates.set_title("Allocated NO Rates Across Stage Interface (SMART-MS)")
+    ax_rates.axvline(t_boundary_ms, color="gray", linestyle=":", lw=1.5, label=f"Air Quench ({t_boundary_ms:.1f} ms)")
+    ax_rates.set_title("Allocated NO Source Rates across RQL Stages (SMART-MS)")
     ax_rates.legend(frameon=True)
     fig_rates.savefig("examples/02_multistage_rates_no.png", dpi=300, bbox_inches="tight")
     print("   Saved: examples/02_multistage_rates_no.png")
 
-    # Plot NO pools
+    # 7b. Plot fractional formation dominance
+    fig_dom, ax_dom = result.plot_dominance(target="NO", t_ms=True)
+    ax_dom.axvline(t_boundary_ms, color="gray", linestyle=":", lw=1.5, label=f"Air Quench ({t_boundary_ms:.1f} ms)")
+    ax_dom.set_title("NO Fractional Formation Dominance across RQL Stages")
+    ax_dom.legend(frameon=True)
+    fig_dom.savefig("examples/02_multistage_dominance_no.png", dpi=300, bbox_inches="tight")
+    print("   Saved: examples/02_multistage_dominance_no.png")
+
+    # 7c. Plot cumulative pools Q
     fig_pools, ax_pools = result.plot_pools(target="NO", t_ms=True)
-    ax_pools.set_xlim(zoom_xlim)
-    ax_pools.axvline(0.0, color="gray", linestyle=":", label="Stage Boundary (t=0)")
-    ax_pools.set_title("Cumulative NO Pools Across Stage Interface (SMART-MS)")
+    ax_pools.axvline(t_boundary_ms, color="gray", linestyle=":", lw=1.5, label=f"Air Quench ({t_boundary_ms:.1f} ms)")
+    ax_pools.set_title("Cumulative NO Accounting Pools across RQL Stages (SMART-MS)")
     ax_pools.legend(frameon=True)
     fig_pools.savefig("examples/02_multistage_pools_no.png", dpi=300, bbox_inches="tight")
     print("   Saved: examples/02_multistage_pools_no.png")
-
-    # Plot HCN rates (mirroring NRRL splt.plot_results_f target_sp='HCN')
-    fig_hcn, ax_hcn = result.plot_rates(target="HCN", t_ms=True)
-    ax_hcn.set_xlim(zoom_xlim)
-    ax_hcn.axvline(0.0, color="gray", linestyle=":", label="Stage Boundary (t=0)")
-    ax_hcn.set_title("Allocated HCN Rates Across Stage Interface (SMART-MS)")
-    ax_hcn.legend(frameon=True)
-    fig_hcn.savefig("examples/02_multistage_rates_hcn.png", dpi=300, bbox_inches="tight")
-    print("   Saved: examples/02_multistage_rates_hcn.png")
 
     print("\nExample 2 finished successfully!")
 
