@@ -6,7 +6,7 @@
 `pySMART` is an open-source Python library for **reaction pathway analysis** in reacting flows and chemical kinetics. It attributes pollutant formation and destruction to distinct physical pathways (e.g., Thermal Zeldovich, Prompt Fenimore, Reburn, Fuel-N oxidation, DeNOx) on unmodified kinetic simulations.
 
 This package includes:
-- **Base SMART Algorithm**: Graph-based element tracking and elemental source allocation for simple closed systems. Built with algorithmic improvements yielding a 70% speed up relative to the that of Helbig and Bohon.
+- **Base SMART Algorithm**: Graph-based element tracking and pathway source allocation for closed systems. Enhanced with algorithmic refinements that reduce convergence iterations by over 70% and guarantee strict mass conservation.
 - **SMART-MS**: Exact mass conservation and discrete boundary jump tracking across multi-stage combustors.
 - **SMART-MG**: Hierarchical 3-level domain decomposition parallel solver (up to $109\times$ speedup on detailed mechanisms like Glarborg 2018).
 
