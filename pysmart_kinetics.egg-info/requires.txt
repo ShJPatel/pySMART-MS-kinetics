@@ -1,0 +1,11 @@
+numpy>=1.22.0
+scipy>=1.8.0
+pandas>=1.4.0
+cantera>=3.0.0
+numba>=0.56.0
+matplotlib>=3.5.0
+pyyaml>=6.0
+
+[dev]
+pytest>=7.0.0
+pytest-cov
